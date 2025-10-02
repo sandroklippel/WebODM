@@ -1,7 +1,10 @@
 name: Build and Publish a Docker Image
 
 on:
-  workflow_dispatch:
+  push:
+    # O workflow será acionado para qualquer tag que termine com '-coaer'
+    tags:
+      - '*-coaer' 
 
 jobs:
 
@@ -28,4 +31,4 @@ jobs:
         platforms: linux/amd64
         push: true
         no-cache: true
-        tags: ghcr.io/${{ github.repository_owner }}/webodm_webapp:${{ github.sha }}
+        tags: ghcr.io/${{ github.repository_owner }}/webodm_webapp:${{ github.ref_name }}
