@@ -70,14 +70,19 @@ class SetCameraView extends React.Component{
 
 class TexturedModelMenu extends React.Component{
     static propTypes = {
-        toggleTexturedModel: PropTypes.func.isRequired
+        toggleTexturedModel: PropTypes.func.isRequired,
+        selected: PropTypes.bool
+    }
+
+    static defaultProps = {
+        selected: false
     }
 
     constructor(props){
         super(props);
 
         this.state = {
-            showTexturedModel: false
+            showTexturedModel: props.selected
         }
         
         // Translation for sidebar.html
@@ -129,13 +134,15 @@ class ModelView extends React.Component {
   static defaultProps = {
     task: null,
     public: false,
-    shareButtons: true
+    shareButtons: true,
+    modelType: "cloud"
   };
 
   static propTypes = {
       task: PropTypes.object.isRequired, // The object should contain two keys: {id: <taskId>, project: <projectId>}
       public: PropTypes.bool, // Is the view being displayed via a shared link?
-      shareButtons: PropTypes.bool
+      shareButtons: PropTypes.bool,
+      modelType: PropTypes.oneOf(['cloud', 'mesh'])
   };
 
   constructor(props){
@@ -143,7 +150,7 @@ class ModelView extends React.Component {
 
     this.state = {
       error: "",
-      showTexturedModel: false,
+      showingTexturedModel: false,
       initializingModel: false,
       selectedCamera: null,
       modalOpen: false
@@ -323,7 +330,7 @@ class ModelView extends React.Component {
       viewer.toggleSidebar();
 
       if (this.hasTexturedModel()){
-          window.ReactDOM.render(<TexturedModelMenu toggleTexturedModel={this.toggleTexturedModel}/>, $("#textured_model_button").get(0));
+          window.ReactDOM.render(<TexturedModelMenu selected={this.props.modelType === 'mesh'} toggleTexturedModel={this.toggleTexturedModel}/>, $("#textured_model_button").get(0));
       }else{
           $("#textured_model").hide();
           $("#textured_model_container").hide();
@@ -355,6 +362,14 @@ class ModelView extends React.Component {
           if (e.type == "loading_failed"){
             this.setState({error: "Could not load point cloud. This task doesn't seem to have one. Try processing the task again."});
             return;
+          }
+          
+          // Set crop vertices if needed
+          e.pointcloud.material.cropVertices = this.getCropCoordinates();
+
+          // Automatically load 3D model if required
+          if (this.hasTexturedModel() && this.props.modelType === "mesh"){
+            this.toggleTexturedModel({ target: { checked: true }});
           }
     
           let scene = viewer.scene;
@@ -457,12 +472,22 @@ class ModelView extends React.Component {
 
     viewer.renderer.domElement.addEventListener( 'mousedown', this.handleRenderMouseClick );
     viewer.renderer.domElement.addEventListener( 'mousemove', this.handleRenderMouseMove );
+    viewer.renderer.domElement.addEventListener( 'touchstart', this.handleRenderTouchStart );
     
+  }
+
+  getCropCoordinates(){
+    if (this.props.task.crop_projected && this.props.task.crop_projected.length >= 3){
+        return this.props.task.crop_projected.map(coord => {
+            return new THREE.Vector3(coord[0], coord[1], 0.0);
+        });
+    }
   }
 
   componentWillUnmount(){
     viewer.renderer.domElement.removeEventListener( 'mousedown', this.handleRenderMouseClick );
     viewer.renderer.domElement.removeEventListener( 'mousemove', this.handleRenderMouseMove );
+    viewer.renderer.domElement.removeEventListener( 'touchstart', this.handleRenderTouchStart );
     
   }
 
@@ -507,6 +532,12 @@ class ModelView extends React.Component {
         viewer.renderer.domElement.classList.remove("pointer-cursor");
     }
     this._prevCamera = camera;
+  }
+
+  handleRenderTouchStart = (evt) => {
+    if (evt.touches.length === 1){
+        this.handleRenderMouseClick({clientX: evt.touches[0].clientX, clientY: evt.touches[0].clientY});
+    }
   }
 
   handleRenderMouseClick = (evt) => {
@@ -631,7 +662,8 @@ class ModelView extends React.Component {
         xhr => {
             // called while loading is progressing
         },
-        error => { cb(error); }
+        error => { cb(error); },
+        {crop: this.getCropCoordinates()}
     );
   }
 
@@ -655,6 +687,7 @@ class ModelView extends React.Component {
 
             this.setState({
                 initializingModel: false,
+                showingTexturedModel: true
             });
         }
 
@@ -699,17 +732,23 @@ class ModelView extends React.Component {
         // Already initialized
         this.modelReference.visible = true;
         this.setPointCloudsVisible(false);
+        this.setState({showingTexturedModel: true});
       }
     }else{
       this.modelReference.visible = false;
       this.setPointCloudsVisible(true);
+      this.setState({showingTexturedModel: false});
     }
   }
 
   // React render
   render(){
-    const { selectedCamera } = this.state;
+    const { selectedCamera, showingTexturedModel } = this.state;
     const { task } = this.props;
+    const queryParams = {};
+    if (showingTexturedModel){
+        queryParams.t = "mesh";
+    }
 
     return (<div className="model-view">
           <ErrorMessage bind={[this, "error"]} />
@@ -735,6 +774,7 @@ class ModelView extends React.Component {
                 task={this.props.task} 
                 popupPlacement="top"
                 linksTarget="3d"
+                queryParams={queryParams}
             />
             : ""}
             <SwitchModeButton 
